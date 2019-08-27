@@ -23,6 +23,7 @@
 				</div>
 				<div class="form_input">
 					<form method="post">
+{#                        不写action,默认就是当前页面url#}
                         {% csrf_token %}
 						<input type="text" name="username" class="name_input" value="{{ username }}" placeholder="请输入用户名">
 						<div class="user_error">输入错误</div>

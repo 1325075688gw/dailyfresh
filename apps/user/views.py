@@ -6,6 +6,8 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate, login, logout
 
+from utils.mixin import LoginRequiredMixin
+
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
 from celery_tasks.tasks import send_email
@@ -124,7 +126,7 @@ class Register(View):
         # send_mail(subject=subject, message=message, from_email=sender, recipient_list=receive_list,html_message=html_message )
         # 用celery发送异步右键
         # send_email.delay(receive_list, username, token)
-        send_email.apply_async((receive_list,username,token))
+        # send_email.apply_async((receive_list,username,token))
         # return redirect(reverse('user:active_email', kwargs={'token':token}))
 
 
@@ -153,11 +155,12 @@ class Login(View):
     def get(self, request):
         '''显示用户登录页面'''
         if 'username' is request.COOKIES:
-            username = request.COOKIES.get('username')
+            username = request.COOKIES.get('username','你好')
             remember = 'checked'
         else:
             username =''
             remember = ''
+
         return render(request, 'login.html',{'username':username, 'remember':remember})
 
     def post(self, request):
@@ -167,17 +170,25 @@ class Login(View):
         password = request.POST.get('pwd')
         remember = request.POST.get('remember')
 
+        response = render(request, 'login.html', {'errmsg': '用户信息不完整!'})
+        if remember == 'on':
+            response.set_cookie('username', username, max_age=7 * 24 * 3600)
+        else:
+            response.delete_cookie('username')
+
         # 校验数据
         if not all([username, password]):
-            return render(request, 'login.html', {'errmsg':'用户信息不完整!'})
+            return response
 
         # 业务处理
         user = authenticate(username=username, password=password)
         if user:
             if user.is_active:
-                login(request, user)
-                # 记住用户名
-                response = redirect(reverse('goods:index')) # redirect是httpresponse子类
+                login(request, user) # 记住用户名
+                # 如果直接输入其他页面,会跳转到login页面,然后登陆成功后,跳转回去
+                next_url = request.GET.get('next', reverse('goods:index')) # redirect是httpresponse子类
+                response = redirect(next_url)
+
                 if remember == 'on':
                     response.set_cookie('username', username, max_age=7*24*3600)
                 else:
@@ -198,6 +209,13 @@ class UserOrder(View):
     def get(self, request):
         return render(request, 'user_center_order.html', {'page':'order'})
 
-class UserAddr(View):
+# class UserAddr(View):
+# Mixin的作用,当多个视图都需要该功能时候,我们可以定义一个类,然后继承该类
+class UserAddr(LoginRequiredMixin, View):
     def get(self, request):
         return render(request, 'user_center_addr.html', {'page':'addr'})
+
+class Logout(View):
+    def get(self, request):
+        logout(request)
+        return redirect(reverse('user:login'))
