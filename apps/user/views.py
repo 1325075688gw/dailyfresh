@@ -1,13 +1,12 @@
 from django.shortcuts import render, redirect,HttpResponse
 from django.core.urlresolvers import reverse
 from django.views.generic import View
-from apps.user import models
 from django.conf import settings
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate, login, logout
 
 from utils.mixin import LoginRequiredMixin
-
+from apps.user import models
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from itsdangerous import SignatureExpired
 from celery_tasks.tasks import send_email
@@ -213,7 +212,46 @@ class UserOrder(View):
 # Mixin的作用,当多个视图都需要该功能时候,我们可以定义一个类,然后继承该类
 class UserAddr(LoginRequiredMixin, View):
     def get(self, request):
-        return render(request, 'user_center_addr.html', {'page':'addr'})
+        user = request.user  # 用户登录后,各个视图都会存在user
+        try:
+            address = models.Address.objects.get(user=user, is_default=True)
+        # 注意点:这儿抛异常的类
+        except models.Address.DoesNotExist as e:
+            address = None
+        return render(request, 'user_center_addr.html', {'page': 'addr', 'address': address})
+
+    def post(self, request):
+        # 接受数据
+        receiver = request.POST.get('receiver')
+        phone = request.POST.get('phone')
+        zip_code = request.POST.get('zip_code')
+        addr = request.POST.get('addr')
+
+        # 校验数据
+        if not all([receiver,phone,addr]):
+            return render(request, 'user_center_addr.html', {'errmsg':'用户数据不完整!'})
+
+        if not re.match(r'^1[3|4|5|6][0-9]{9}$', phone):
+            return render(request, 'user_center_addr.html', {'errmsg': '电话号码格式不正确!'})
+        # 业务处理
+        user = request.user # 用户登录后,各个视图都会存在user
+        try:
+            address = models.Address.objects.get(user=user, is_default=True)
+        except models.Address.DoesNotExist as e:
+            address = None
+        if address:
+            is_default = False
+        else:
+            is_default = True
+        models.Address.objects.create(user=user,
+                                      receiver=receiver,
+                                      addr=addr,
+                                      zip_code=zip_code,
+                                      phone=phone,
+                                      is_default=is_default)
+
+        # 返回应答
+        return redirect(reverse('user:addr')) # 重定向会以get形式请求
 
 class Logout(View):
     def get(self, request):
